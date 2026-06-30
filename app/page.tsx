@@ -5,6 +5,7 @@ import { motion, useScroll, useTransform } from "motion/react";
 import {
   ArrowUpRight,
   CheckCircle2,
+  Download,
   FileSpreadsheet,
   FileText,
   Loader2,
@@ -13,6 +14,22 @@ import {
 } from "lucide-react";
 
 type GenerateStatus = "idle" | "uploading" | "complete" | "error";
+type DownloadStatus = "idle" | "generating" | "complete" | "error";
+
+type BasicValue = string | number | boolean | null;
+
+type ParsedData = {
+  ok: boolean;
+  message: string;
+  excel_filename?: string;
+  template_filename?: string;
+  available_sheets?: string[];
+  selected_sheets?: {
+    input1?: string;
+    reports?: string[];
+  };
+  basic_info?: Record<string, BasicValue>;
+};
 
 export default function Home() {
   const generatorRef = useRef<HTMLElement | null>(null);
@@ -20,52 +37,130 @@ export default function Home() {
   const [excelFile, setExcelFile] = useState<File | null>(null);
   const [hwpFile, setHwpFile] = useState<File | null>(null);
   const [status, setStatus] = useState<GenerateStatus>("idle");
+  const [downloadStatus, setDownloadStatus] = useState<DownloadStatus>("idle");
   const [message, setMessage] = useState("");
+  const [downloadMessage, setDownloadMessage] = useState("");
+  const [parsedData, setParsedData] = useState<ParsedData | null>(null);
 
   const { scrollYProgress } = useScroll();
   const heroMove = useTransform(scrollYProgress, [0, 0.35], [0, -120]);
   const blurMove = useTransform(scrollYProgress, [0, 0.35], [0, 90]);
 
-  const canGenerate = !!excelFile && !!hwpFile && status !== "uploading";
+  const canAnalyze = !!excelFile && !!hwpFile && status !== "uploading";
+  const canGenerate =
+    !!excelFile &&
+    !!hwpFile &&
+    !!parsedData &&
+    downloadStatus !== "generating";
 
   const scrollToGenerator = () => {
     generatorRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
-  const handleGenerate = async () => {
-    if (!excelFile || !hwpFile) return;
+  const resetResult = () => {
+    setStatus("idle");
+    setDownloadStatus("idle");
+    setMessage("");
+    setDownloadMessage("");
+    setParsedData(null);
+  };
 
+  const buildFormData = () => {
+    if (!excelFile || !hwpFile) {
+      throw new Error("엑셀 파일과 한글 템플릿 파일을 모두 업로드해야 합니다.");
+    }
+
+    const formData = new FormData();
+    formData.append("excel", excelFile);
+    formData.append("template", hwpFile);
+
+    return formData;
+  };
+
+  const handleAnalyze = async () => {
     try {
       setStatus("uploading");
       setMessage("파일을 Python 백엔드로 보내는 중입니다.");
+      setParsedData(null);
 
-      const formData = new FormData();
-      formData.append("excel", excelFile);
-      formData.append("template", hwpFile);
-
-      const res = await fetch("http://127.0.0.1:8000/parse-excel", {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+      const res = await fetch(`${apiUrl}/parse-excel`, {
         method: "POST",
-        body: formData,
+        body: buildFormData(),
       });
 
-      const data = await res.json();
+      const data: ParsedData = await res.json();
 
-      if (!res.ok) {
-        throw new Error(data.message || "보고서 생성에 실패했습니다.");
+      if (!res.ok || !data.ok) {
+        throw new Error(data.message || "엑셀 분석에 실패했습니다.");
       }
 
       console.log("Backend response:", data);
 
+      setParsedData(data);
       setStatus("complete");
       setMessage(data.message || "엑셀 파일을 성공적으로 읽었습니다.");
     } catch (error) {
       console.error(error);
 
       setStatus("error");
+      setParsedData(null);
       setMessage(
         error instanceof Error
           ? error.message
           : "백엔드 연결 중 알 수 없는 오류가 발생했습니다."
+      );
+    }
+  };
+
+  const handleGenerateHwp = async () => {
+    try {
+      setDownloadStatus("generating");
+      setDownloadMessage("HWP 보고서를 생성하는 중입니다.");
+
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+      const res = await fetch(`${apiUrl}/generate-report`, {
+        method: "POST",
+        body: buildFormData(),
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.message || "HWP 보고서 생성에 실패했습니다.");
+      }
+
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+
+      const contentDisposition = res.headers.get("content-disposition");
+      let filename = "자동생성보고서.hwp";
+
+      if (contentDisposition) {
+        const match = contentDisposition.match(/filename="?([^"]+)"?/);
+        if (match?.[1]) {
+          filename = decodeURIComponent(match[1]);
+        }
+      }
+
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+
+      link.remove();
+      window.URL.revokeObjectURL(url);
+
+      setDownloadStatus("complete");
+      setDownloadMessage("HWP 보고서 다운로드가 완료되었습니다.");
+    } catch (error) {
+      console.error(error);
+
+      setDownloadStatus("error");
+      setDownloadMessage(
+        error instanceof Error
+          ? error.message
+          : "보고서 생성 중 알 수 없는 오류가 발생했습니다."
       );
     }
   };
@@ -140,9 +235,8 @@ export default function Home() {
             보고서 파일을 자동 생성합니다.
           </h2>
           <p className="section-desc">
-            현재 단계는 프론트 화면에서 업로드한 엑셀과 한글 템플릿을
-            Python/FastAPI 백엔드로 전송하고, 백엔드가 엑셀 파일을 읽는지
-            확인하는 단계입니다.
+            현재 단계는 엑셀 데이터를 확인한 뒤, HWP 템플릿 안의 치환 태그를
+            실제 값으로 바꿔 자동 보고서를 다운로드하는 단계입니다.
           </p>
         </motion.div>
 
@@ -166,8 +260,7 @@ export default function Home() {
               icon={<FileSpreadsheet size={28} />}
               onFileChange={(file) => {
                 setExcelFile(file);
-                setStatus("idle");
-                setMessage("");
+                resetResult();
               }}
             />
 
@@ -179,8 +272,7 @@ export default function Home() {
               icon={<FileText size={28} />}
               onFileChange={(file) => {
                 setHwpFile(file);
-                setStatus("idle");
-                setMessage("");
+                resetResult();
               }}
             />
           </div>
@@ -189,20 +281,20 @@ export default function Home() {
             <ProcessStep number="01" title="Read Excel" active={!!excelFile} />
             <ProcessStep
               number="02"
-              title="Map Values"
-              active={!!excelFile && !!hwpFile}
+              title="Check Data"
+              active={!!parsedData}
             />
             <ProcessStep
               number="03"
               title="Generate HWP"
-              active={status === "complete"}
+              active={downloadStatus === "complete"}
             />
           </div>
 
           <div className="generate-area">
             <div className={`status-text ${status}`}>
               {status === "idle" &&
-                "파일 2개를 업로드하면 생성 버튼이 활성화됩니다."}
+                "파일 2개를 업로드하면 분석 버튼이 활성화됩니다."}
               {status === "uploading" && message}
               {status === "complete" && message}
               {status === "error" && message}
@@ -210,27 +302,67 @@ export default function Home() {
 
             <button
               className="generate-button"
-              disabled={!canGenerate}
-              onClick={handleGenerate}
+              disabled={!canAnalyze}
+              onClick={handleAnalyze}
             >
               {status === "uploading" ? (
                 <>
                   <Loader2 className="spin" size={20} />
-                  GENERATING
+                  ANALYZING
                 </>
               ) : status === "complete" ? (
                 <>
                   <CheckCircle2 size={20} />
-                  COMPLETE
+                  DATA READY
                 </>
               ) : (
                 <>
                   <Sparkles size={20} />
-                  GENERATE REPORT
+                  ANALYZE EXCEL
                 </>
               )}
             </button>
           </div>
+
+          {parsedData && (
+            <>
+              <BasicInfoPreview data={parsedData} />
+
+              <div className="download-panel">
+                <div>
+                  <p className="preview-label">[ HWP OUTPUT ]</p>
+                  <h3>검토한 데이터로 HWP 보고서를 생성합니다.</h3>
+                  <p className={`download-message ${downloadStatus}`}>
+                    {downloadMessage ||
+                      "템플릿에 {{학교명}}, {{교장}}, {{소재지}} 같은 태그가 있어야 값이 치환됩니다."}
+                  </p>
+                </div>
+
+                <button
+                  className="generate-button"
+                  disabled={!canGenerate}
+                  onClick={handleGenerateHwp}
+                >
+                  {downloadStatus === "generating" ? (
+                    <>
+                      <Loader2 className="spin" size={20} />
+                      GENERATING HWP
+                    </>
+                  ) : downloadStatus === "complete" ? (
+                    <>
+                      <CheckCircle2 size={20} />
+                      DOWNLOADED
+                    </>
+                  ) : (
+                    <>
+                      <Download size={20} />
+                      GENERATE HWP
+                    </>
+                  )}
+                </button>
+              </div>
+            </>
+          )}
         </motion.div>
       </section>
     </main>
@@ -320,13 +452,57 @@ function ProcessStep({
     </div>
   );
 }
-type ParsedData = {
-  ok: boolean;
-  message: string;
-  basic_info?: Record<string, string | number | null>;
-  selected_sheets?: {
-    input1: string;
-    reports: string[];
-  };
-  available_sheets?: string[];
-};
+
+function BasicInfoPreview({ data }: { data: ParsedData }) {
+  const basicInfo = data.basic_info || {};
+  const entries = Object.entries(basicInfo);
+
+  return (
+    <div className="preview-panel">
+      <div className="preview-header">
+        <div>
+          <p className="preview-label">[ EXTRACTED DATA ]</p>
+          <h3>엑셀에서 읽은 기본정보</h3>
+        </div>
+
+        <div className="sheet-badge">
+          {data.selected_sheets?.input1 || "입력 시트 정보 없음"}
+        </div>
+      </div>
+
+      <div className="file-summary">
+        <div>
+          <span>Excel</span>
+          <p>{data.excel_filename || "-"}</p>
+        </div>
+        <div>
+          <span>Template</span>
+          <p>{data.template_filename || "-"}</p>
+        </div>
+      </div>
+
+      <div className="info-grid">
+        {entries.map(([key, value]) => (
+          <div className="info-item" key={key}>
+            <span>{key}</span>
+            <strong>
+              {value === null || value === "" || value === undefined
+                ? "-"
+                : String(value)}
+            </strong>
+          </div>
+        ))}
+      </div>
+
+      <div className="report-sheet-list">
+        <span>읽은 보고서 시트</span>
+        <p>{data.selected_sheets?.reports?.join(", ") || "-"}</p>
+      </div>
+
+      <div className="report-sheet-list">
+        <span>전체 시트 개수</span>
+        <p>{data.available_sheets?.length || 0}개</p>
+      </div>
+    </div>
+  );
+}
