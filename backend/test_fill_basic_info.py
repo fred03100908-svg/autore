@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 from pathlib import Path
 import sys
 from datetime import datetime, date, time
@@ -12,16 +14,20 @@ except ImportError:
 from openpyxl import load_workbook
 
 
+BASIC_INFO_FILLER_VERSION = "2026-06-30_BASIC_INFO_WITH_TITLE_CHECKBOX"
+
 BASE_DIR = Path(__file__).resolve().parent
 UPLOAD_DIR = BASE_DIR / "uploads"
 OUTPUT_DIR = BASE_DIR / "outputs"
 OUTPUT_DIR.mkdir(exist_ok=True)
 
 INPUT1_SHEET_NAME = "입력1(학교시설명 등 기본사항 입력) 보고서1,2"
+TARGET_TITLE = "학교 환경위생 및 식품위생(정기■ㆍ특별□) 점검표"
 
 
 def find_latest_file(patterns):
     files = []
+
     if UPLOAD_DIR.exists():
         for pattern in patterns:
             files.extend(UPLOAD_DIR.glob(pattern))
@@ -61,7 +67,9 @@ def normalize_value(value):
 def safe_text(value):
     if value is None:
         return "-"
+
     text = str(value).strip()
+
     return text if text else "-"
 
 
@@ -146,19 +154,122 @@ def move_doc_begin(hwp):
 def find_text(hwp, text):
     move_doc_begin(hwp)
 
-    hwp.HAction.GetDefault("RepeatFind", hwp.HParameterSet.HFindReplace.HSet)
-    hwp.HParameterSet.HFindReplace.FindString = text
-    hwp.HParameterSet.HFindReplace.Direction = hwp.FindDir("Forward")
-    hwp.HParameterSet.HFindReplace.IgnoreMessage = 1
-    hwp.HParameterSet.HFindReplace.FindType = 1
+    try:
+        hwp.HAction.GetDefault("RepeatFind", hwp.HParameterSet.HFindReplace.HSet)
+        hwp.HParameterSet.HFindReplace.FindString = text
+        hwp.HParameterSet.HFindReplace.Direction = hwp.FindDir("Forward")
+        hwp.HParameterSet.HFindReplace.IgnoreMessage = 1
 
-    return hwp.HAction.Execute("RepeatFind", hwp.HParameterSet.HFindReplace.HSet)
+        # 일부 한글 버전에서는 아래 속성 설정 시 오류 발생:
+        # Property 'HFindReplace.FindType' can not be set.
+        # 그래서 사용하지 않음.
+        # hwp.HParameterSet.HFindReplace.FindType = 1
+
+        return hwp.HAction.Execute(
+            "RepeatFind",
+            hwp.HParameterSet.HFindReplace.HSet,
+        )
+
+    except Exception as e:
+        print(f"[찾기 실패] {text}")
+        print(e)
+        return False
+
+
+def all_replace(hwp, find_string, replace_string):
+    try:
+        hwp.HAction.GetDefault("AllReplace", hwp.HParameterSet.HFindReplace.HSet)
+        hwp.HParameterSet.HFindReplace.FindString = find_string
+        hwp.HParameterSet.HFindReplace.ReplaceString = replace_string
+        hwp.HParameterSet.HFindReplace.Direction = hwp.FindDir("AllDoc")
+        hwp.HParameterSet.HFindReplace.IgnoreMessage = 1
+
+        # FindType은 한글 버전에 따라 오류가 나므로 사용하지 않음.
+        # hwp.HParameterSet.HFindReplace.FindType = 1
+
+        return hwp.HAction.Execute(
+            "AllReplace",
+            hwp.HParameterSet.HFindReplace.HSet,
+        )
+
+    except Exception as e:
+        print(f"[제목 치환 실패] {find_string} → {replace_string}")
+        print(e)
+        return False
+
+
+def fill_title_checkbox(hwp):
+    """
+    제목의 정기/특별 체크박스를 정기 체크 상태로 맞춘다.
+
+    목표:
+    학교 환경위생 및 식품위생(정기■ㆍ특별□) 점검표
+    """
+
+    print()
+    print("=" * 60)
+    print("[제목 입력] 정기/특별 체크박스 입력")
+    print(f"[제목 입력] 목표 제목: {TARGET_TITLE}")
+    print("=" * 60)
+
+    if find_text(hwp, TARGET_TITLE):
+        print("[제목 입력] 이미 목표 제목 상태입니다.")
+        return True
+
+    replacements = [
+        # 전체 제목 치환
+        ("학교 환경위생 및 식품위생(정기□ㆍ특별□) 점검표", TARGET_TITLE),
+        ("학교 환경위생 및 식품위생(정기 □ㆍ특별 □) 점검표", TARGET_TITLE),
+        ("학교 환경위생 및 식품위생(정기□ · 특별□) 점검표", TARGET_TITLE),
+        ("학교 환경위생 및 식품위생(정기□·특별□) 점검표", TARGET_TITLE),
+        ("학교 환경위생 및 식품위생(정기▢ㆍ특별▢) 점검표", TARGET_TITLE),
+        ("학교 환경위생 및 식품위생(정기☐ㆍ특별☐) 점검표", TARGET_TITLE),
+        ("학교 환경위생 및 식품위생(정기□ㆍ 특별□) 점검표", TARGET_TITLE),
+        ("학교 환경위생 및 식품위생(정기 □ㆍ 특별 □) 점검표", TARGET_TITLE),
+
+        # 괄호 안 체크박스만 치환
+        ("정기□ㆍ특별□", "정기■ㆍ특별□"),
+        ("정기 □ㆍ특별 □", "정기■ㆍ특별□"),
+        ("정기□ · 특별□", "정기■ㆍ특별□"),
+        ("정기□·특별□", "정기■ㆍ특별□"),
+        ("정기▢ㆍ특별▢", "정기■ㆍ특별□"),
+        ("정기☐ㆍ특별☐", "정기■ㆍ특별□"),
+        ("정기□ㆍ 특별□", "정기■ㆍ특별□"),
+        ("정기 □ㆍ 특별 □", "정기■ㆍ특별□"),
+
+        # 특수 기호가 빠져 있는 경우
+        ("정기ㆍ특별", "정기■ㆍ특별□"),
+        ("정기 ㆍ특별", "정기■ㆍ특별□"),
+    ]
+
+    changed_count = 0
+
+    for before, after in replacements:
+        if find_text(hwp, before):
+            print(f"[제목 입력] 찾음: {before}")
+
+            if all_replace(hwp, before, after):
+                changed_count += 1
+        else:
+            print(f"[제목 입력] 없음: {before}")
+
+    if changed_count > 0:
+        print(f"[제목 입력] 완료 / 치환 수: {changed_count}")
+        return True
+
+    print("[제목 입력] 정확히 일치하는 제목/체크박스 문구를 찾지 못했습니다.")
+    print("[제목 입력] 기본사항 입력은 계속 진행합니다.")
+    return False
 
 
 def insert_text(hwp, text):
     hwp.HAction.GetDefault("InsertText", hwp.HParameterSet.HInsertText.HSet)
     hwp.HParameterSet.HInsertText.Text = safe_text(text)
-    return hwp.HAction.Execute("InsertText", hwp.HParameterSet.HInsertText.HSet)
+
+    return hwp.HAction.Execute(
+        "InsertText",
+        hwp.HParameterSet.HInsertText.HSet,
+    )
 
 
 def cancel_selection(hwp):
@@ -258,6 +369,7 @@ def main():
     basic_info = extract_basic_info(excel_path)
 
     print("=" * 60)
+    print(f"BASIC_INFO_FILLER_VERSION: {BASIC_INFO_FILLER_VERSION}")
     print("사용할 엑셀:")
     print(excel_path)
     print()
@@ -289,6 +401,9 @@ def main():
             pass
 
         hwp.Open(str(hwp_path))
+
+        # 제목/체크박스 먼저 처리
+        fill_title_checkbox(hwp)
 
         jobs = [
             # 기본 개요
@@ -382,3 +497,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    

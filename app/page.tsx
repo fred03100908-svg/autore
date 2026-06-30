@@ -83,8 +83,7 @@ export default function Home() {
       setMessage("파일을 Python 백엔드로 보내는 중입니다.");
       setParsedData(null);
 
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
-      const res = await fetch(`${apiUrl}/parse-excel`, {
+      const res = await fetch("/api/parse-excel", {
         method: "POST",
         body: buildFormData(),
       });
@@ -118,8 +117,7 @@ export default function Home() {
       setDownloadStatus("generating");
       setDownloadMessage("HWP 보고서를 생성하는 중입니다.");
 
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
-      const res = await fetch(`${apiUrl}/generate-report`, {
+      const res = await fetch("/api/generate-report", {
         method: "POST",
         body: buildFormData(),
       });

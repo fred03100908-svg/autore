@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-const BACKEND_TIMEOUT_MS = 60_000;
+const BACKEND_TIMEOUT_MS = 30_000;
 
 function extractErrorMessage(data: unknown, fallback: string): string {
   if (!data || typeof data !== "object") {
@@ -64,7 +64,7 @@ export async function POST(request: Request) {
   const timeoutId = setTimeout(() => controller.abort(), BACKEND_TIMEOUT_MS);
 
   try {
-    const response = await fetch(`${backendUrl}/generate-report`, {
+    const response = await fetch(`${backendUrl}/parse-excel`, {
       method: "POST",
       headers: {
         "bypass-tunnel-reminder": "true",
@@ -73,22 +73,10 @@ export async function POST(request: Request) {
       signal: controller.signal,
     });
 
-    const responseHeaders = new Headers();
-    const contentType = response.headers.get("content-type");
-    const contentDisposition = response.headers.get("content-disposition");
-
-    if (contentType) {
-      responseHeaders.set("content-type", contentType);
-    }
-
-    if (contentDisposition) {
-      responseHeaders.set("content-disposition", contentDisposition);
-    }
-
     if (!response.ok) {
       const message = await readBackendError(
         response,
-        "HWP 보고서 생성 백엔드에 연결하지 못했습니다."
+        "엑셀 분석 백엔드에 연결하지 못했습니다."
       );
 
       return NextResponse.json(
@@ -100,16 +88,38 @@ export async function POST(request: Request) {
       );
     }
 
-    return new NextResponse(await response.arrayBuffer(), {
-      status: response.status,
-      headers: responseHeaders,
-    });
+    const data = await response.json().catch(() => null);
+
+    if (!data || typeof data !== "object") {
+      return NextResponse.json(
+        {
+          ok: false,
+          message: "백엔드 응답 형식이 올바르지 않습니다.",
+        },
+        { status: 502 }
+      );
+    }
+
+    const typedData = data as Record<string, unknown>;
+
+    return NextResponse.json(
+      {
+        ok: typedData.ok ?? true,
+        message: typedData.message,
+        excel_filename: typedData.excel_filename,
+        template_filename: typedData.template_filename,
+        available_sheets: typedData.available_sheets,
+        selected_sheets: typedData.selected_sheets,
+        basic_info: typedData.basic_info,
+      },
+      { status: response.status }
+    );
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
       return NextResponse.json(
         {
           ok: false,
-          message: "보고서 생성 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.",
+          message: "백엔드 응답 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.",
         },
         { status: 504 }
       );

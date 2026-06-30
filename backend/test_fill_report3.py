@@ -1,17 +1,17 @@
+# -*- coding: utf-8 -*-
+
 from pathlib import Path
-import sys
-import re
 from datetime import datetime, date, time
 
 try:
     import win32com.client as win32
 except ImportError:
-    print("pywin32가 설치되어 있지 않습니다.")
-    print(r".venv\Scripts\python.exe -m pip install pywin32")
-    sys.exit(1)
+    win32 = None
 
 from openpyxl import load_workbook
 
+
+REPORT3_FILLER_VERSION = "2026-06-30_REPORT3_STABLE_TOTAL_AIRBORNE_BACTERIA_PATCH"
 
 BASE_DIR = Path(__file__).resolve().parent
 UPLOAD_DIR = BASE_DIR / "uploads"
@@ -36,30 +36,6 @@ def find_latest_file(patterns):
 
 def is_empty(value):
     return value is None or str(value).strip() == ""
-
-
-def normalize_key(value):
-    if value is None:
-        return ""
-
-    text = str(value)
-    text = text.replace("\n", "")
-    text = text.replace("\r", "")
-    text = text.replace(" ", "")
-    text = text.replace("(", "")
-    text = text.replace(")", "")
-    text = text.replace("（", "")
-    text = text.replace("）", "")
-    text = text.replace("㎡", "")
-    text = text.replace("㎥", "")
-    text = text.replace("㎍", "")
-    text = text.replace("μg", "")
-    text = text.replace("ug", "")
-    text = text.replace("/", "")
-    text = text.replace("%", "")
-    text = text.lower()
-
-    return text
 
 
 def decimal_places_from_format(number_format):
@@ -120,291 +96,68 @@ def format_excel_cell(cell):
     return str(value).strip()
 
 
-def read_block(sheet, start_row, end_row):
+def resize_values(values, row_count):
+    values = list(values)
+
+    if len(values) > row_count:
+        return values[:row_count]
+
+    while len(values) < row_count:
+        values.append("-")
+
+    return values
+
+
+def read_block(sheet, start_row, end_row, hwp_rows):
     rows = range(start_row, end_row + 1)
 
-    return {
-        "검사장소": [format_excel_cell(sheet.cell(row=r, column=2)) for r in rows],
-        "검사횟수": [format_excel_cell(sheet.cell(row=r, column=4)) for r in rows],
-        "최소": [format_excel_cell(sheet.cell(row=r, column=5)) for r in rows],
-        "최대": [format_excel_cell(sheet.cell(row=r, column=6)) for r in rows],
-        "평균": [format_excel_cell(sheet.cell(row=r, column=7)) for r in rows],
+    data = {
+        "place": [format_excel_cell(sheet.cell(row=r, column=2)) for r in rows],
+        "count": [format_excel_cell(sheet.cell(row=r, column=4)) for r in rows],
+        "min": [format_excel_cell(sheet.cell(row=r, column=5)) for r in rows],
+        "max": [format_excel_cell(sheet.cell(row=r, column=6)) for r in rows],
+        "avg": [format_excel_cell(sheet.cell(row=r, column=7)) for r in rows],
+        "result": [format_excel_cell(sheet.cell(row=r, column=9)) for r in rows],
     }
 
+    for key in data:
+        data[key] = resize_values(data[key], hwp_rows)
 
-def extract_report3_1_data(sheet):
+    return data
+
+
+def get_report3_specs():
     return [
-        {
-            "section": "3-1",
-            "name": "PM10",
-            "anchors": ["PM10"],
-            "start_row": 5,
-            "end_row": 11,
-            "data": read_block(sheet, 5, 11),
-        },
-        {
-            "section": "3-1",
-            "name": "PM2.5",
-            "anchors": ["PM2.5", "PM2"],
-            "start_row": 12,
-            "end_row": 16,
-            "data": read_block(sheet, 12, 16),
-        },
-        {
-            "section": "3-1",
-            "name": "CO2",
-            "anchors": ["CO₂", "CO2", "이산화탄소"],
-            "start_row": 17,
-            "end_row": 22,
-            "data": read_block(sheet, 17, 22),
-        },
-        {
-            "section": "3-1",
-            "name": "HCHO",
-            "anchors": ["HCHO", "포름알데하이드"],
-            "start_row": 23,
-            "end_row": 30,
-            "data": read_block(sheet, 23, 30),
-        },
-        {
-            "section": "3-1",
-            "name": "총부유세균",
-            "anchors": ["총부유세균", "부유세균"],
-            "start_row": 31,
-            "end_row": 34,
-            "data": read_block(sheet, 31, 34),
-        },
-        {
-            "section": "3-1",
-            "name": "낙하세균",
-            "anchors": ["낙하세균"],
-            "start_row": 35,
-            "end_row": 38,
-            "data": read_block(sheet, 35, 38),
-        },
-        {
-            "section": "3-1",
-            "name": "CO",
-            "anchors": ["일산화탄소"],
-            "start_row": 39,
-            "end_row": 41,
-            "data": read_block(sheet, 39, 41),
-        },
-        {
-            "section": "3-1",
-            "name": "NO2",
-            "anchors": ["NO₂", "NO2", "이산화질소"],
-            "start_row": 42,
-            "end_row": 44,
-            "data": read_block(sheet, 42, 44),
-        },
-        {
-            "section": "3-1",
-            "name": "Rn",
-            "anchors": ["Rn", "라돈"],
-            "start_row": 45,
-            "end_row": 46,
-            "data": read_block(sheet, 45, 46),
-        },
-        {
-            "section": "3-1",
-            "name": "석면",
-            "anchors": ["석면"],
-            "start_row": 47,
-            "end_row": 52,
-            "data": read_block(sheet, 47, 52),
-        },
-        {
-            "section": "3-1",
-            "name": "오존",
-            "anchors": ["오존", "O₃", "O3"],
-            "start_row": 53,
-            "end_row": 55,
-            "data": read_block(sheet, 53, 55),
-        },
-        {
-            "section": "3-1",
-            "name": "진드기 등",
-            "anchors": ["진드기"],
-            "start_row": 56,
-            "end_row": 56,
-            "data": read_block(sheet, 56, 56),
-        },
-        {
-            "section": "3-1",
-            "name": "TVOC",
-            "anchors": ["TVOC"],
-            "start_row": 57,
-            "end_row": 59,
-            "data": read_block(sheet, 57, 59),
-        },
-        {
-            "section": "3-1",
-            "name": "벤젠",
-            "anchors": ["벤젠"],
-            "start_row": 60,
-            "end_row": 62,
-            "data": read_block(sheet, 60, 62),
-        },
-        {
-            "section": "3-1",
-            "name": "톨루엔",
-            "anchors": ["톨루엔"],
-            "start_row": 63,
-            "end_row": 65,
-            "data": read_block(sheet, 63, 65),
-        },
-        {
-            "section": "3-1",
-            "name": "에틸벤젠",
-            "anchors": ["에틸벤젠"],
-            "start_row": 66,
-            "end_row": 68,
-            "data": read_block(sheet, 66, 68),
-        },
-        {
-            "section": "3-1",
-            "name": "자일렌",
-            "anchors": ["자일렌"],
-            "start_row": 69,
-            "end_row": 71,
-            "data": read_block(sheet, 69, 71),
-        },
-        {
-            "section": "3-1",
-            "name": "스티렌",
-            "anchors": ["스티렌"],
-            "start_row": 72,
-            "end_row": 74,
-            "data": read_block(sheet, 72, 74),
-        },
+        # 3-1
+        {"section": "3-1", "name": "PM10", "start_row": 5, "end_row": 11, "hwp_rows": 7},
+        {"section": "3-1", "name": "PM2.5", "start_row": 12, "end_row": 16, "hwp_rows": 5},
+        {"section": "3-1", "name": "CO2", "start_row": 17, "end_row": 21, "hwp_rows": 5},
+        {"section": "3-1", "name": "HCHO", "start_row": 23, "end_row": 30, "hwp_rows": 8},
+        {"section": "3-1", "name": "총부유세균", "start_row": 31, "end_row": 34, "hwp_rows": 4},
+        {"section": "3-1", "name": "낙하세균", "start_row": 35, "end_row": 38, "hwp_rows": 4},
+        {"section": "3-1", "name": "CO", "start_row": 39, "end_row": 41, "hwp_rows": 3},
+        {"section": "3-1", "name": "NO2", "start_row": 42, "end_row": 44, "hwp_rows": 3},
+        {"section": "3-1", "name": "Rn", "start_row": 45, "end_row": 46, "hwp_rows": 2},
+        {"section": "3-1", "name": "석면", "start_row": 47, "end_row": 52, "hwp_rows": 6},
+        {"section": "3-1", "name": "오존", "start_row": 53, "end_row": 55, "hwp_rows": 3},
+        {"section": "3-1", "name": "진드기", "start_row": 56, "end_row": 56, "hwp_rows": 1},
+        {"section": "3-1", "name": "TVOC", "start_row": 57, "end_row": 59, "hwp_rows": 4},
+        {"section": "3-1", "name": "벤젠", "start_row": 60, "end_row": 62, "hwp_rows": 4},
+        {"section": "3-1", "name": "톨루엔", "start_row": 63, "end_row": 65, "hwp_rows": 4},
+        {"section": "3-1", "name": "에틸벤젠", "start_row": 66, "end_row": 68, "hwp_rows": 4},
+        {"section": "3-1", "name": "자일렌", "start_row": 69, "end_row": 71, "hwp_rows": 4},
+        {"section": "3-1", "name": "스티렌", "start_row": 72, "end_row": 74, "hwp_rows": 4},
+
+        # 3-2
+        {"section": "3-2", "name": "조도_칠판면", "start_row": 79, "end_row": 82, "hwp_rows": 4},
+        {"section": "3-2", "name": "조도_책상면", "start_row": 83, "end_row": 86, "hwp_rows": 4},
+        {"section": "3-2", "name": "조도비_칠판면", "start_row": 87, "end_row": 90, "hwp_rows": 4},
+        {"section": "3-2", "name": "조도비_책상면", "start_row": 91, "end_row": 94, "hwp_rows": 4},
+        {"section": "3-2", "name": "온도", "start_row": 95, "end_row": 101, "hwp_rows": 7},
+        {"section": "3-2", "name": "습도", "start_row": 102, "end_row": 108, "hwp_rows": 7},
+        {"section": "3-2", "name": "소음", "start_row": 109, "end_row": 112, "hwp_rows": 4},
+        {"section": "3-2", "name": "환기", "start_row": 113, "end_row": 116, "hwp_rows": 4},
     ]
-
-
-def find_excel_item_rows(sheet, item_specs, search_start=75, search_end=119):
-    found_items = []
-
-    for row in range(search_start, search_end + 1):
-        value = sheet.cell(row=row, column=1).value
-        key = normalize_key(value)
-
-        if not key:
-            continue
-
-        for spec in item_specs:
-            for excel_key in spec["excel_keys"]:
-                if normalize_key(excel_key) in key:
-                    found_items.append(
-                        {
-                            **spec,
-                            "start_row": row,
-                        }
-                    )
-                    break
-
-    unique = []
-    seen = set()
-
-    for item in found_items:
-        if item["name"] in seen:
-            continue
-        seen.add(item["name"])
-        unique.append(item)
-
-    unique.sort(key=lambda item: item["start_row"])
-
-    for index, item in enumerate(unique):
-        if index + 1 < len(unique):
-            item["end_row"] = unique[index + 1]["start_row"] - 1
-        else:
-            item["end_row"] = search_end
-
-    return unique
-
-
-def extract_report3_2_data(sheet):
-    item_specs = [
-        {
-            "section": "3-2",
-            "name": "조도_칠판면",
-            "excel_keys": ["조도칠판면", "조도(칠판면)"],
-            "anchors": ["조도"],
-            "hwp_occurrence": 1,
-        },
-        {
-            "section": "3-2",
-            "name": "조도_책상면",
-            "excel_keys": ["조도책상면", "조도(책상면)"],
-            "anchors": ["조도"],
-            "hwp_occurrence": 2,
-        },
-        {
-            "section": "3-2",
-            "name": "조도비_칠판면",
-            "excel_keys": ["조도비칠판면", "조도비(칠판면)"],
-            "anchors": ["조도비"],
-            "hwp_occurrence": 1,
-        },
-        {
-            "section": "3-2",
-            "name": "조도비_책상면",
-            "excel_keys": ["조도비책상면", "조도비(책상면)"],
-            "anchors": ["조도비"],
-            "hwp_occurrence": 2,
-        },
-        {
-            "section": "3-2",
-            "name": "온도",
-            "excel_keys": ["온도"],
-            "anchors": ["온도"],
-            "hwp_occurrence": 1,
-        },
-        {
-            "section": "3-2",
-            "name": "습도",
-            "excel_keys": ["습도"],
-            "anchors": ["습도"],
-            "hwp_occurrence": 1,
-        },
-        {
-            "section": "3-2",
-            "name": "소음",
-            "excel_keys": ["소음"],
-            "anchors": ["소음"],
-            "hwp_occurrence": 1,
-        },
-        {
-            "section": "3-2",
-            "name": "환기",
-            "excel_keys": ["환기"],
-            "anchors": ["환기"],
-            "hwp_occurrence": 1,
-        },
-    ]
-
-    items = find_excel_item_rows(
-        sheet=sheet,
-        item_specs=item_specs,
-        search_start=75,
-        search_end=119,
-    )
-
-    blocks = []
-
-    for item in items:
-        blocks.append(
-            {
-                "section": "3-2",
-                "name": item["name"],
-                "anchors": item["anchors"],
-                "hwp_occurrence": item["hwp_occurrence"],
-                "start_row": item["start_row"],
-                "end_row": item["end_row"],
-                "data": read_block(sheet, item["start_row"], item["end_row"]),
-            }
-        )
-
-    return blocks
 
 
 def extract_report3_data(excel_path):
@@ -414,11 +167,47 @@ def extract_report3_data(excel_path):
         raise ValueError(f"{REPORT3_SHEET_NAME} 시트를 찾지 못했습니다.")
 
     sheet = workbook[REPORT3_SHEET_NAME]
+    specs = get_report3_specs()
 
-    blocks_3_1 = extract_report3_1_data(sheet)
-    blocks_3_2 = extract_report3_2_data(sheet)
+    section_values = {
+        "3-1": {
+            "place": [],
+            "count": [],
+            "min": [],
+            "max": [],
+            "avg": [],
+            "result": [],
+        },
+        "3-2": {
+            "place": [],
+            "count": [],
+            "min": [],
+            "max": [],
+            "avg": [],
+            "result": [],
+        },
+    }
 
-    return blocks_3_1 + blocks_3_2
+    blocks = []
+
+    for spec in specs:
+        data = read_block(
+            sheet=sheet,
+            start_row=spec["start_row"],
+            end_row=spec["end_row"],
+            hwp_rows=spec["hwp_rows"],
+        )
+
+        block = dict(spec)
+        block["data"] = data
+        blocks.append(block)
+
+        section = spec["section"]
+
+        for key in section_values[section]:
+            section_values[section][key].extend(data[key])
+
+    return blocks, section_values
 
 
 def run(hwp, action_name):
@@ -437,13 +226,21 @@ def find_text(hwp, text, from_begin=True):
     if from_begin:
         move_doc_begin(hwp)
 
-    hwp.HAction.GetDefault("RepeatFind", hwp.HParameterSet.HFindReplace.HSet)
-    hwp.HParameterSet.HFindReplace.FindString = text
-    hwp.HParameterSet.HFindReplace.Direction = hwp.FindDir("Forward")
-    hwp.HParameterSet.HFindReplace.IgnoreMessage = 1
-    hwp.HParameterSet.HFindReplace.FindType = 1
+    try:
+        hwp.HAction.GetDefault("RepeatFind", hwp.HParameterSet.HFindReplace.HSet)
+        hwp.HParameterSet.HFindReplace.FindString = text
+        hwp.HParameterSet.HFindReplace.Direction = hwp.FindDir("Forward")
+        hwp.HParameterSet.HFindReplace.IgnoreMessage = 1
 
-    return hwp.HAction.Execute("RepeatFind", hwp.HParameterSet.HFindReplace.HSet)
+        return hwp.HAction.Execute(
+            "RepeatFind",
+            hwp.HParameterSet.HFindReplace.HSet,
+        )
+
+    except Exception as e:
+        print(f"[찾기 실패] '{text}' 검색 중 오류 발생")
+        print(e)
+        return False
 
 
 def insert_text(hwp, text):
@@ -451,7 +248,11 @@ def insert_text(hwp, text):
 
     hwp.HAction.GetDefault("InsertText", hwp.HParameterSet.HInsertText.HSet)
     hwp.HParameterSet.HInsertText.Text = text
-    return hwp.HAction.Execute("InsertText", hwp.HParameterSet.HInsertText.HSet)
+
+    return hwp.HAction.Execute(
+        "InsertText",
+        hwp.HParameterSet.HInsertText.HSet,
+    )
 
 
 def cancel_selection(hwp):
@@ -461,6 +262,13 @@ def cancel_selection(hwp):
 def move_right(hwp, count=1):
     for _ in range(count):
         if not run(hwp, "TableRightCell"):
+            return False
+    return True
+
+
+def move_left(hwp, count=1):
+    for _ in range(count):
+        if not run(hwp, "TableLeftCell"):
             return False
     return True
 
@@ -512,56 +320,33 @@ def go_to_section(hwp, section_name):
     return True
 
 
-def go_to_item_anchor(hwp, block):
-    section_name = block["section"]
+def go_to_header_first_data_cell(hwp, section_name, header_candidates):
+    for header_text in header_candidates:
+        if not go_to_section(hwp, section_name):
+            return False
 
-    if not go_to_section(hwp, section_name):
-        return False
+        found = find_text(hwp, header_text, from_begin=False)
 
-    occurrence = block.get("hwp_occurrence", 1)
-
-    for anchor in block["anchors"]:
-        found_count = 0
-
-        # 3-2의 조도/조도비처럼 같은 단어가 반복될 수 있음
-        while found_count < occurrence:
-            found = find_text(hwp, anchor, from_begin=False)
-
-            if not found:
-                break
-
-            found_count += 1
+        if found:
             cancel_selection(hwp)
 
-        if found_count == occurrence:
-            print(f"[성공] {block['name']} 기준 글자 찾음: {anchor} / {occurrence}번째")
+            if not move_down(hwp, 1):
+                print(f"[실패] '{header_text}' 헤더 아래 첫 데이터 셀로 이동 실패")
+                return False
+
+            print(f"[성공] {section_name} 헤더 찾음: {header_text}")
             return True
 
-    print(f"[실패] HWP에서 {block['name']} 항목을 찾지 못했습니다. anchors={block['anchors']}")
+    print(f"[실패] {section_name}에서 헤더를 찾지 못했습니다. candidates={header_candidates}")
     return False
 
 
-def go_to_item_cell(hwp, block, right_count):
-    if right_count >= 7:
-        raise ValueError(
-            "이번 버전에서는 검사시간/유지기준/평가결과/측정기기 사양 영역을 건드리지 않습니다."
-        )
-
-    if not go_to_item_anchor(hwp, block):
-        return False
-
-    if not move_right(hwp, right_count):
-        return False
-
-    return True
-
-
-def fill_vertical_column(hwp, block, label, right_count, values):
+def fill_column_from_header(hwp, section_name, label, header_candidates, values):
     print()
-    print(f"[{block['section']} / {block['name']}] 세로 입력: {label} / 오른쪽 {right_count}칸")
+    print(f"[{section_name}] {label} 열 입력 시작 / 총 {len(values)}행")
 
-    if not go_to_item_cell(hwp, block, right_count):
-        print(f"[실패] {block['name']} {label} 첫 칸 이동 실패")
+    if not go_to_header_first_data_cell(hwp, section_name, header_candidates):
+        print(f"[실패] {section_name} / {label} 열 시작 위치 이동 실패")
         return 0
 
     success_count = 0
@@ -574,42 +359,536 @@ def fill_vertical_column(hwp, block, label, right_count, values):
 
         if index < len(values):
             if not move_down(hwp, 1):
-                print(f"[실패] {block['name']} {label} 아래 이동 실패")
+                print(f"[실패] {section_name} / {label} / {index + 1}번째 행 이동 실패")
                 return success_count
 
     return success_count
 
 
-def fill_block(hwp, block):
-    data = block["data"]
+def write_stable_row_from_current_place(hwp, row_data, label=""):
+    """
+    현재 위치가 검사장소 칸이라고 가정한다.
+
+    입력하는 칸:
+    검사장소 / 검사횟수 / 최소 / 최대 / 평균 / 평가결과
+
+    건드리지 않는 칸:
+    검사시간 / 유지기준 / 측정기기 사양 / 검사방법 / 비고
+    """
+
+    success_count = 0
+
+    print(f"  {label} / 검사장소 → {row_data.get('place', '-')}")
+    if write_current_cell(hwp, row_data.get("place", "-")):
+        success_count += 1
+
+    # 검사장소 → 검사시간 건너뜀 → 검사횟수
+    if not move_right(hwp, 2):
+        print(f"[실패] {label} / 검사횟수 칸 이동 실패")
+        return success_count
+
+    print(f"  {label} / 검사횟수 → {row_data.get('count', '-')}")
+    if write_current_cell(hwp, row_data.get("count", "-")):
+        success_count += 1
+
+    # 검사횟수 → 최소
+    if not move_right(hwp, 1):
+        print(f"[실패] {label} / 최소 칸 이동 실패")
+        return success_count
+
+    print(f"  {label} / 최소 → {row_data.get('min', '-')}")
+    if write_current_cell(hwp, row_data.get("min", "-")):
+        success_count += 1
+
+    # 최소 → 최대
+    if not move_right(hwp, 1):
+        print(f"[실패] {label} / 최대 칸 이동 실패")
+        return success_count
+
+    print(f"  {label} / 최대 → {row_data.get('max', '-')}")
+    if write_current_cell(hwp, row_data.get("max", "-")):
+        success_count += 1
+
+    # 최대 → 평균
+    if not move_right(hwp, 1):
+        print(f"[실패] {label} / 평균 칸 이동 실패")
+        return success_count
+
+    print(f"  {label} / 평균 → {row_data.get('avg', '-')}")
+    if write_current_cell(hwp, row_data.get("avg", "-")):
+        success_count += 1
+
+    # 평균 → 유지기준 건너뜀 → 평가결과
+    if not move_right(hwp, 2):
+        print(f"[실패] {label} / 평가결과 칸 이동 실패")
+        return success_count
+
+    print(f"  {label} / 평가결과 → {row_data.get('result', '-')}")
+    if write_current_cell(hwp, row_data.get("result", "-")):
+        success_count += 1
+
+    return success_count
+
+
+def fill_report3_section_3_2_row_based(hwp, values):
+    print()
+    print("=" * 60)
+    print("[3-2] ROW BASED 안정 입력 시작")
+    print("[3-2] 검사시간/유지기준은 건드리지 않음")
+    print("=" * 60)
+
+    row_count = len(values["place"])
+
+    if not go_to_header_first_data_cell(
+        hwp,
+        "3-2",
+        ["검사장소", "장소"],
+    ):
+        print("[실패] 3-2 검사장소 첫 데이터 칸으로 이동하지 못했습니다.")
+        return 0
+
+    success_count = 0
+
+    for row_index in range(row_count):
+        row_data = {
+            "place": values["place"][row_index],
+            "count": values["count"][row_index],
+            "min": values["min"][row_index],
+            "max": values["max"][row_index],
+            "avg": values["avg"][row_index],
+            "result": values["result"][row_index],
+        }
+
+        print()
+        print(f"[3-2] {row_index + 1}/{row_count}행 입력")
+
+        success_count += write_stable_row_from_current_place(
+            hwp,
+            row_data,
+            label=f"3-2 {row_index + 1}행",
+        )
+
+        if row_index < row_count - 1:
+            if not move_left(hwp, 7):
+                print("[실패] 다음 행 이동 전 검사장소 열 복귀 실패")
+                return success_count
+
+            if not move_down(hwp, 1):
+                print("[실패] 다음 행 이동 실패")
+                return success_count
+
+    print()
+    print(f"[3-2] ROW BASED 안정 입력 완료 / 입력 셀 수: {success_count}")
+
+    return success_count
+
+
+def get_3_2_humidity_values(values):
+    humidity_start_index = 4 + 4 + 4 + 4 + 7
+    humidity_row_count = 7
+
+    return {
+        "place": values["place"][humidity_start_index:humidity_start_index + humidity_row_count],
+        "count": values["count"][humidity_start_index:humidity_start_index + humidity_row_count],
+        "min": values["min"][humidity_start_index:humidity_start_index + humidity_row_count],
+        "max": values["max"][humidity_start_index:humidity_start_index + humidity_row_count],
+        "avg": values["avg"][humidity_start_index:humidity_start_index + humidity_row_count],
+        "result": values["result"][humidity_start_index:humidity_start_index + humidity_row_count],
+    }
+
+
+def fill_3_2_humidity_only(hwp, values):
+    humidity_values = get_3_2_humidity_values(values)
+    row_count = len(humidity_values["place"])
+
+    print()
+    print("=" * 60)
+    print("[3-2 습도 보정] 습도 항목만 다시 입력합니다.")
+    print("[3-2 습도 보정] 검사시간/유지기준은 건드리지 않음")
+    print("=" * 60)
+
+    if not go_to_section(hwp, "3-2"):
+        print("[실패] 3-2 섹션으로 이동 실패")
+        return 0
+
+    found = find_text(hwp, "습도", from_begin=False)
+
+    if not found:
+        print("[실패] 3-2에서 '습도' 항목을 찾지 못했습니다.")
+        return 0
+
+    cancel_selection(hwp)
+
+    if not move_right(hwp, 1):
+        print("[실패] 습도 검사장소 첫 칸 이동 실패")
+        return 0
+
+    success_count = 0
+
+    for row_index in range(row_count):
+        row_data = {
+            "place": humidity_values["place"][row_index],
+            "count": humidity_values["count"][row_index],
+            "min": humidity_values["min"][row_index],
+            "max": humidity_values["max"][row_index],
+            "avg": humidity_values["avg"][row_index],
+            "result": humidity_values["result"][row_index],
+        }
+
+        print()
+        print(f"[3-2 습도 보정] {row_index + 1}/{row_count}행")
+
+        success_count += write_stable_row_from_current_place(
+            hwp,
+            row_data,
+            label=f"습도 {row_index + 1}행",
+        )
+
+        if row_index < row_count - 1:
+            if not move_left(hwp, 7):
+                print("[실패] 습도 다음 행 이동 전 검사장소 열 복귀 실패")
+                return success_count
+
+            if not move_down(hwp, 1):
+                print("[실패] 습도 다음 행 이동 실패")
+                return success_count
+
+    print()
+    print(f"[3-2 습도 보정] 완료 / 입력 셀 수: {success_count}")
+
+    return success_count
+
+
+def slice_values(values, start_index, row_count):
+    return {
+        "place": values["place"][start_index:start_index + row_count],
+        "count": values["count"][start_index:start_index + row_count],
+        "min": values["min"][start_index:start_index + row_count],
+        "max": values["max"][start_index:start_index + row_count],
+        "avg": values["avg"][start_index:start_index + row_count],
+        "result": values["result"][start_index:start_index + row_count],
+    }
+
+
+def normalize_anchor_list(anchor):
+    if isinstance(anchor, (list, tuple)):
+        return list(anchor)
+    return [anchor]
+
+
+def go_to_item_place_cell(hwp, section_name, item_text, occurrence=1):
+    """
+    특정 검사항목 셀을 찾고, 그 오른쪽 검사장소 첫 칸으로 이동한다.
+
+    item_text는 문자열 또는 리스트 가능.
+    예:
+    "낙하세균"
+    ["총부유세균", "부유세균"]
+    """
+
+    anchors = normalize_anchor_list(item_text)
+
+    for anchor_text in anchors:
+        if not go_to_section(hwp, section_name):
+            print(f"[실패] {section_name} 섹션 이동 실패")
+            return False
+
+        found_all = True
+
+        for index in range(occurrence):
+            found = find_text(hwp, anchor_text, from_begin=False)
+
+            if not found:
+                found_all = False
+                print(f"[검색 실패] {section_name}에서 '{anchor_text}' {index + 1}/{occurrence}번째를 찾지 못했습니다.")
+                break
+
+            cancel_selection(hwp)
+
+        if not found_all:
+            continue
+
+        if not move_right(hwp, 1):
+            print(f"[실패] {section_name} / {anchor_text} 검사장소 칸 이동 실패")
+            return False
+
+        print(f"[성공] {section_name} / 기준어 '{anchor_text}'로 검사장소 칸 이동")
+        return True
+
+    print(f"[실패] {section_name}에서 기준어 후보 {anchors} 모두 찾지 못했습니다.")
+    return False
+
+
+def fill_block_from_item_anchor(hwp, section_name, item_text, block_values, occurrence=1, label=None):
+    row_count = len(block_values["place"])
+    success_count = 0
+    display_label = label or (item_text[0] if isinstance(item_text, (list, tuple)) else item_text)
+
+    print()
+    print("=" * 60)
+    print(f"[보정 입력] {section_name} / {display_label} / {row_count}행")
+    print("=" * 60)
+
+    if not go_to_item_place_cell(
+        hwp=hwp,
+        section_name=section_name,
+        item_text=item_text,
+        occurrence=occurrence,
+    ):
+        return 0
+
+    for row_index in range(row_count):
+        row_data = {
+            "place": block_values["place"][row_index],
+            "count": block_values["count"][row_index],
+            "min": block_values["min"][row_index],
+            "max": block_values["max"][row_index],
+            "avg": block_values["avg"][row_index],
+            "result": block_values["result"][row_index],
+        }
+
+        print()
+        print(f"[보정 입력] {section_name} / {display_label} / {row_index + 1}/{row_count}행")
+
+        success_count += write_stable_row_from_current_place(
+            hwp,
+            row_data,
+            label=f"{section_name} {display_label} {row_index + 1}행",
+        )
+
+        if row_index < row_count - 1:
+            if not move_left(hwp, 7):
+                print(f"[실패] {section_name} / {display_label} 다음 행 전 검사장소 복귀 실패")
+                return success_count
+
+            if not move_down(hwp, 1):
+                print(f"[실패] {section_name} / {display_label} 다음 행 이동 실패")
+                return success_count
+
+    print()
+    print(f"[보정 완료] {section_name} / {display_label} / 입력 셀 수: {success_count}")
+
+    return success_count
+
+
+def patch_3_1_middle(hwp, values):
+    print()
+    print("=" * 60)
+    print("[3-1 보정] 총부유세균 ~ 오존 구간 보정 입력")
+    print("=" * 60)
+
+    patch_specs = [
+        # 총부유세균은 HWP에서 줄바꿈 때문에 '총부유세균'으로 안 잡히는 경우가 있어
+        # '부유세균'을 fallback anchor로 사용한다.
+        {"item": ["총부유세균", "부유세균"], "label": "총부유세균", "start": 25, "rows": 4, "occurrence": 1},
+        {"item": "낙하세균", "label": "낙하세균", "start": 29, "rows": 4, "occurrence": 1},
+        {"item": "CO", "label": "CO", "start": 33, "rows": 3, "occurrence": 2},
+        {"item": "NO2", "label": "NO2", "start": 36, "rows": 3, "occurrence": 1},
+        {"item": "Rn", "label": "Rn", "start": 39, "rows": 2, "occurrence": 1},
+        {"item": "석면", "label": "석면", "start": 41, "rows": 6, "occurrence": 1},
+        {"item": "오존", "label": "오존", "start": 47, "rows": 3, "occurrence": 1},
+        {"item": "진드기", "label": "진드기", "start": 50, "rows": 1, "occurrence": 1},
+    ]
+
     total = 0
 
-    total += fill_vertical_column(hwp, block, "검사장소", 1, data["검사장소"])
-    total += fill_vertical_column(hwp, block, "검사횟수", 3, data["검사횟수"])
-    total += fill_vertical_column(hwp, block, "최소", 4, data["최소"])
-    total += fill_vertical_column(hwp, block, "최대", 5, data["최대"])
-    total += fill_vertical_column(hwp, block, "평균", 6, data["평균"])
+    for spec in patch_specs:
+        block_values = slice_values(
+            values=values,
+            start_index=spec["start"],
+            row_count=spec["rows"],
+        )
+
+        total += fill_block_from_item_anchor(
+            hwp=hwp,
+            section_name="3-1",
+            item_text=spec["item"],
+            block_values=block_values,
+            occurrence=spec["occurrence"],
+            label=spec["label"],
+        )
+
+    return total
+
+
+def patch_3_1_voc_tail(hwp, values):
+    print()
+    print("=" * 60)
+    print("[3-1 보정] TVOC ~ 스티렌 구간 보정 입력")
+    print("=" * 60)
+
+    patch_specs = [
+        {"item": "TVOC", "label": "TVOC", "start": 51, "rows": 4, "occurrence": 1},
+        {"item": "벤젠", "label": "벤젠", "start": 55, "rows": 4, "occurrence": 1},
+        {"item": "톨루엔", "label": "톨루엔", "start": 59, "rows": 4, "occurrence": 1},
+        {"item": "에틸벤젠", "label": "에틸벤젠", "start": 63, "rows": 4, "occurrence": 1},
+        {"item": "자일렌", "label": "자일렌", "start": 67, "rows": 4, "occurrence": 1},
+        {"item": "스티렌", "label": "스티렌", "start": 71, "rows": 4, "occurrence": 1},
+    ]
+
+    total = 0
+
+    for spec in patch_specs:
+        block_values = slice_values(
+            values=values,
+            start_index=spec["start"],
+            row_count=spec["rows"],
+        )
+
+        total += fill_block_from_item_anchor(
+            hwp=hwp,
+            section_name="3-1",
+            item_text=spec["item"],
+            block_values=block_values,
+            occurrence=spec["occurrence"],
+            label=spec["label"],
+        )
+
+    return total
+
+
+def patch_3_2_noise_ventilation(hwp, values):
+    print()
+    print("=" * 60)
+    print("[3-2 보정] 소음 / 환기 구간 보정 입력")
+    print("=" * 60)
+
+    patch_specs = [
+        {"item": "소음", "label": "소음", "start": 4 + 4 + 4 + 4 + 7 + 7, "rows": 4, "occurrence": 1},
+        {"item": "환기", "label": "환기", "start": 4 + 4 + 4 + 4 + 7 + 7 + 4, "rows": 4, "occurrence": 1},
+    ]
+
+    total = 0
+
+    for spec in patch_specs:
+        block_values = slice_values(
+            values=values,
+            start_index=spec["start"],
+            row_count=spec["rows"],
+        )
+
+        total += fill_block_from_item_anchor(
+            hwp=hwp,
+            section_name="3-2",
+            item_text=spec["item"],
+            block_values=block_values,
+            occurrence=spec["occurrence"],
+            label=spec["label"],
+        )
+
+    return total
+
+
+def fill_report3_section(hwp, section_name, values):
+    if section_name == "3-2":
+        total = 0
+
+        total += fill_report3_section_3_2_row_based(hwp, values)
+
+        print()
+        print("=" * 60)
+        print("[3-2] 습도 누락 방지용 보정 입력 시작")
+        print("=" * 60)
+
+        total += fill_3_2_humidity_only(hwp, values)
+
+        print()
+        print("=" * 60)
+        print("[3-2] 소음/환기 누락 방지용 보정 입력 시작")
+        print("=" * 60)
+
+        total += patch_3_2_noise_ventilation(hwp, values)
+
+        return total
+
+    total = 0
+
+    total += fill_column_from_header(
+        hwp,
+        section_name,
+        "검사장소",
+        ["검사장소", "장소"],
+        values["place"],
+    )
+
+    total += fill_column_from_header(
+        hwp,
+        section_name,
+        "검사횟수",
+        ["검사횟수", "횟수"],
+        values["count"],
+    )
+
+    total += fill_column_from_header(
+        hwp,
+        section_name,
+        "최소",
+        ["최소"],
+        values["min"],
+    )
+
+    total += fill_column_from_header(
+        hwp,
+        section_name,
+        "최대",
+        ["최대"],
+        values["max"],
+    )
+
+    total += fill_column_from_header(
+        hwp,
+        section_name,
+        "평균",
+        ["평균"],
+        values["avg"],
+    )
+
+    total += fill_column_from_header(
+        hwp,
+        section_name,
+        "평가결과",
+        ["평가결과", "평가"],
+        values["result"],
+    )
+
+    print()
+    print("=" * 60)
+    print("[3-1] 총부유세균~오존 누락 방지용 보정 입력 시작")
+    print("=" * 60)
+
+    total += patch_3_1_middle(hwp, values)
+
+    print()
+    print("=" * 60)
+    print("[3-1] TVOC~스티렌 누락 방지용 보정 입력 시작")
+    print("=" * 60)
+
+    total += patch_3_1_voc_tail(hwp, values)
 
     return total
 
 
 def main():
+    if win32 is None:
+        print("pywin32가 설치되어 있지 않습니다.")
+        print(r".venv\Scripts\python.exe -m pip install pywin32")
+        return
+
     excel_path = find_latest_file(["*.xlsm", "*.xlsx", "*.xls"])
     hwp_path = find_latest_file(["*.hwp"])
 
     if excel_path is None:
         print("uploads 폴더에서 엑셀 파일을 찾지 못했습니다.")
-        print("웹사이트에서 엑셀 파일 업로드 후 ANALYZE EXCEL을 먼저 눌러주세요.")
         return
 
     if hwp_path is None:
         print("uploads 폴더에서 HWP 템플릿을 찾지 못했습니다.")
-        print("웹사이트에서 원본 HWP 템플릿 업로드 후 ANALYZE EXCEL을 먼저 눌러주세요.")
         return
 
-    blocks = extract_report3_data(excel_path)
+    blocks, section_values = extract_report3_data(excel_path)
 
     print("=" * 60)
+    print(f"REPORT3_FILLER_VERSION: {REPORT3_FILLER_VERSION}")
     print("사용할 엑셀:")
     print(excel_path)
     print()
@@ -617,20 +896,20 @@ def main():
     print(hwp_path)
     print()
     print("입력 대상:")
+
     for block in blocks:
         print(
             f"- {block['section']} / {block['name']} / "
-            f"엑셀 {block['start_row']}~{block['end_row']}행"
+            f"엑셀 {block['start_row']}~{block['end_row']}행 / HWP {block['hwp_rows']}행"
         )
-        print("  검사장소:", block["data"]["검사장소"])
-        print("  검사횟수:", block["data"]["검사횟수"])
-        print("  최소:", block["data"]["최소"])
-        print("  최대:", block["data"]["최대"])
-        print("  평균:", block["data"]["평균"])
+
+    print()
+    print("3-1 총 행 수:", len(section_values["3-1"]["place"]))
+    print("3-2 총 행 수:", len(section_values["3-2"]["place"]))
     print("=" * 60)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_path = OUTPUT_DIR / f"{timestamp}_보고서3_3-1_3-2_측정값만_입력테스트.hwp"
+    output_path = OUTPUT_DIR / f"{timestamp}_보고서3_TOTAL_AIRBORNE_BACTERIA_PATCH_측정값입력테스트.hwp"
 
     hwp = None
 
@@ -651,22 +930,26 @@ def main():
 
         total = 0
 
-        for block in blocks:
-            print()
-            print("=" * 60)
-            print(f"[{block['section']} / {block['name']}] 입력 시작")
-            print("=" * 60)
+        print()
+        print("=" * 60)
+        print("[3-1] 입력 시작")
+        print("=" * 60)
+        total += fill_report3_section(hwp, "3-1", section_values["3-1"])
 
-            total += fill_block(hwp, block)
+        print()
+        print("=" * 60)
+        print("[3-2] 입력 시작")
+        print("=" * 60)
+        total += fill_report3_section(hwp, "3-2", section_values["3-2"])
 
         hwp.SaveAs(str(output_path))
 
         print()
-        print("[완료] 보고서3 3-1 + 3-2 측정값 입력 테스트 HWP를 저장했습니다.")
+        print("[완료] 보고서3 안정 입력 테스트 HWP를 저장했습니다.")
         print(output_path)
         print(f"[결과] 총 입력 셀 수: {total}")
         print()
-        print("이번 버전은 검사시간, 유지기준, 평가결과, 측정기기 사양을 건드리지 않습니다.")
+        print("검사시간, 유지기준, 측정기기 사양, 검사방법, 비고는 건드리지 않았습니다.")
 
     except Exception as e:
         print()
